@@ -1,0 +1,45 @@
+version: '3.8'
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: kino
+      POSTGRES_PASSWORD: kino
+      POSTGRES_DB: kino
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  web:
+    build: .
+    depends_on:
+      - redis
+      - db
+    ports:
+      - '8000:8000'
+    environment:
+      DATABASE_URL: postgresql+psycopg2://kino:kino@db:5432/kino
+      REDIS_URL: redis://redis:6379
+    volumes:
+      - .:/app
+
+  worker:
+    build: .
+    depends_on:
+      - redis
+      - db
+    command: ["dramatiq", "app.tasks", "--processes", "1"]
+    environment:
+      DATABASE_URL: postgresql+psycopg2://kino:kino@db:5432/kino
+      REDIS_URL: redis://redis:6379
+    volumes:
+      - .:/app
+
+volumes:
+  pgdata:

@@ -1,0 +1,81 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Kino — Watch party</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Roboto, Arial; padding: 2rem; }
+      #controls { margin-top: 1rem; }
+    </style>
+  </head>
+  <body>
+    <h1>Kino — совместный просмотр (MVP)</h1>
+
+    <div>
+      <label>Room code: <input id="room" value="room1"/></label>
+      <button id="join">Join</button>
+    </div>
+
+    <div id="controls" style="display:none">
+      <video id="video" width="640" controls>
+        <source id="src" src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4" type="video/mp4" />
+        Your browser does not support the video tag.
+      </video>
+      <div>
+        <button id="play">Play</button>
+        <button id="pause">Pause</button>
+        <button id="seek">Seek +10s</button>
+      </div>
+      <div id="log"></div>
+    </div>
+
+    <script>
+      let ws;
+      document.getElementById('join').addEventListener('click', () => {
+        const room = document.getElementById('room').value
+        if (!room) return alert('Введите код комнаты')
+        ws = new WebSocket(`ws://${location.host}/ws/${room}`)
+        ws.onopen = () => {
+          document.getElementById('controls').style.display = 'block'
+          log('WS connected')
+        }
+        ws.onmessage = (e) => {
+          try {
+            const data = JSON.parse(e.data)
+            const payload = JSON.parse(data.payload)
+            handleRemote(payload)
+          } catch(e) { console.warn('parse', e) }
+        }
+      })
+
+      const video = document.getElementById('video')
+      document.getElementById('play').addEventListener('click', () => {
+        video.play()
+        send({ type: 'play', ts: Date.now(), position: video.currentTime })
+      })
+      document.getElementById('pause').addEventListener('click', () => {
+        video.pause()
+        send({ type: 'pause', ts: Date.now(), position: video.currentTime })
+      })
+      document.getElementById('seek').addEventListener('click', () => {
+        video.currentTime = video.currentTime + 10
+        send({ type: 'seek', ts: Date.now(), position: video.currentTime })
+      })
+
+      function send(payload) {
+        if (!ws || ws.readyState !== 1) return
+        ws.send(JSON.stringify(payload))
+      }
+
+      function handleRemote(payload) {
+        if (!payload || !payload.type) return
+        log('remote: '+payload.type+' @'+payload.position.toFixed(2))
+        if (payload.type === 'play') video.currentTime = payload.position, video.play()
+        if (payload.type === 'pause') video.currentTime = payload.position, video.pause()
+        if (payload.type === 'seek') video.currentTime = payload.position
+      }
+
+      function log(s) { const n = document.createElement('div'); n.textContent = s; document.getElementById('log').prepend(n) }
+    </script>
+  </body>
+</html>
