@@ -12,3 +12,4 @@ aiofiles>=23.1
 pytest>=7.2
 pytest-asyncio>=0.21
 pytest-cov
+boto3

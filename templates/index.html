@@ -1,81 +1,307 @@
 <!doctype html>
-<html>
+<html lang="ru">
   <head>
     <meta charset="utf-8" />
     <title>Kino — Watch party</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <style>
-      body { font-family: system-ui, -apple-system, Roboto, Arial; padding: 2rem; }
-      #controls { margin-top: 1rem; }
+      :root {
+        --bg-color: #121212;
+        --surface-color: #1e1e1e;
+        --primary-color: #bb86fc;
+        --text-color: #e0e0e0;
+        --secondary-text: #a0a0a0;
+      }
+
+      body {
+        font-family: system-ui, -apple-system, Roboto, Arial, sans-serif;
+        background-color: var(--bg-color);
+        color: var(--text-color);
+        margin: 0;
+        padding: 2rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        min-height: 100vh;
+      }
+
+      h1 {
+        font-weight: 300;
+        margin-bottom: 2rem;
+        color: var(--primary-color);
+      }
+
+      .container {
+        width: 100%;
+        max-width: 800px;
+        background: var(--surface-color);
+        padding: 2rem;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      }
+
+      .join-form {
+        display: flex;
+        gap: 10px;
+        justify-content: center;
+        margin-bottom: 1rem;
+      }
+
+      input, select, button {
+        padding: 10px 15px;
+        border-radius: 6px;
+        border: 1px solid #333;
+        background: #2c2c2c;
+        color: #fff;
+        font-size: 1rem;
+      }
+
+      button {
+        background: var(--primary-color);
+        color: #000;
+        font-weight: bold;
+        cursor: pointer;
+        border: none;
+        transition: opacity 0.2s;
+      }
+
+      button:hover { opacity: 0.9; }
+
+      #controls {
+        display: none;
+        margin-top: 1.5rem;
+        text-align: center;
+      }
+
+      .video-selector {
+        margin-bottom: 1.5rem;
+      }
+      .video-selector select {
+        width: 100%;
+        max-width: 400px;
+      }
+
+      video {
+        width: 100%;
+        border-radius: 8px;
+        background: #000;
+        outline: none;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+      }
+
+      #log {
+        margin-top: 1.5rem;
+        padding: 1rem;
+        background: #181818;
+        border-radius: 6px;
+        height: 150px;
+        overflow-y: auto;
+        text-align: left;
+        font-family: monospace;
+        font-size: 0.85rem;
+        color: var(--secondary-text);
+        border: 1px solid #333;
+      }
+
+      #log div {
+        margin-bottom: 4px;
+        border-bottom: 1px solid #222;
+        padding-bottom: 2px;
+      }
     </style>
   </head>
   <body>
-    <h1>Kino — совместный просмотр (MVP)</h1>
+    
+    <div class="container">
+      <h1>🎬 Kino — Watch party</h1>
 
-    <div>
-      <label>Room code: <input id="room" value="room1"/></label>
-      <button id="join">Join</button>
-    </div>
-
-    <div id="controls" style="display:none">
-      <video id="video" width="640" controls>
-        <source id="src" src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4" type="video/mp4" />
-        Your browser does not support the video tag.
-      </video>
-      <div>
-        <button id="play">Play</button>
-        <button id="pause">Pause</button>
-        <button id="seek">Seek +10s</button>
+      <div class="join-form">
+        <input id="room" placeholder="Код комнаты" value="room1" />
+        <button id="join">Войти</button>
       </div>
-      <div id="log"></div>
+
+      <div id="controls">
+        <div class="video-selector">
+          <select id="video-select">
+            <option value="">— Выберите видео —</option>
+          </select>
+        </div>
+
+        <video id="video" controls>
+          <source id="src" src="" type="video/mp4" />
+          Ваш браузер не поддерживает тег video.
+        </video>
+
+        <div id="log"></div>
+      </div>
     </div>
 
     <script>
       let ws;
-      document.getElementById('join').addEventListener('click', () => {
-        const room = document.getElementById('room').value
-        if (!room) return alert('Введите код комнаты')
-        ws = new WebSocket(`ws://${location.host}/ws/${room}`)
-        ws.onopen = () => {
-          document.getElementById('controls').style.display = 'block'
-          log('WS connected')
+      const video = document.getElementById('video');
+      const srcEl = document.getElementById('src');
+      const logContainer = document.getElementById('log');
+      const videoSelect = document.getElementById('video-select');
+
+      let videos = [];
+      let isRemoteAction = false;
+
+      document.getElementById('join').addEventListener('click', async () => {
+        const room = document.getElementById('room').value;
+        if (!room) return alert('Введите код комнаты');
+
+        try {
+          const resp = await fetch('/api/videos');
+          if (!resp.ok) throw new Error('Status ' + resp.status);
+          videos = await resp.json();
+          fillVideoSelect(videos);
+        } catch (e) {
+          console.error('Load failed', e);
+          log('Ошибка загрузки списка видео: ' + e.message);
+          return;
         }
+
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        ws = new WebSocket(`${proto}//${location.host}/ws/${room}`);
+        
+        ws.onopen = () => {
+          document.getElementById('controls').style.display = 'block';
+          document.querySelector('.join-form').style.display = 'none';
+          log('🟢 Подключено к комнате ' + room);
+        };
+        
         ws.onmessage = (e) => {
           try {
-            const data = JSON.parse(e.data)
-            const payload = JSON.parse(data.payload)
-            handleRemote(payload)
-          } catch(e) { console.warn('parse', e) }
-        }
-      })
+            const data = JSON.parse(e.data);
+            const payload = JSON.parse(data.payload);
+            handleRemote(payload);
+          } catch (err) {
+            console.warn('parse error', err);
+          }
+        };
+        
+        ws.onclose = () => log('🔴 Соединение закрыто');
+      });
 
-      const video = document.getElementById('video')
-      document.getElementById('play').addEventListener('click', () => {
-        video.play()
-        send({ type: 'play', ts: Date.now(), position: video.currentTime })
-      })
-      document.getElementById('pause').addEventListener('click', () => {
-        video.pause()
-        send({ type: 'pause', ts: Date.now(), position: video.currentTime })
-      })
-      document.getElementById('seek').addEventListener('click', () => {
-        video.currentTime = video.currentTime + 10
-        send({ type: 'seek', ts: Date.now(), position: video.currentTime })
-      })
+      function fillVideoSelect(list) {
+        videoSelect.length = 1;
+        list.forEach(v => {
+          const opt = document.createElement('option');
+          opt.value = String(v.id);
+          opt.textContent = v.filename;
+          videoSelect.appendChild(opt);
+        });
+      }
+
+      videoSelect.addEventListener('change', () => {
+        if (isRemoteAction) return;
+
+        const id = Number(videoSelect.value);
+        const v = videos.find(x => x.id === id);
+        if (!v) return;
+
+        changeVideoSrc(v);
+        log('Выбрали видео: ' + v.filename);
+
+        send({
+          type: 'video',
+          videoId: v.id
+        });
+      });
+
+      function changeVideoSrc(v) {
+        video.pause();
+        srcEl.src = v.url;
+        video.load();
+      }
+
+
+      video.addEventListener('play', () => {
+        if (isRemoteAction) return;
+        if (video.ended || (video.duration && video.currentTime >= video.duration)) {
+          video.currentTime = 0;
+        }
+        send({ type: 'play', ts: Date.now(), position: video.currentTime });
+      });
+
+      video.addEventListener('pause', () => {
+        if (isRemoteAction) return;
+        send({ type: 'pause', ts: Date.now(), position: video.currentTime });
+      });
+
+      video.addEventListener('seeked', () => {
+        if (isRemoteAction) return;
+        send({ type: 'seek', ts: Date.now(), position: video.currentTime });
+      });
+
+      video.addEventListener('ratechange', () => {
+        if (isRemoteAction) return;
+        send({ type: 'rate', ts: Date.now(), position: video.currentTime, rate: video.playbackRate });
+      });
+
+      video.addEventListener('ended', () => {
+        log('local: ended');
+      });
+
 
       function send(payload) {
-        if (!ws || ws.readyState !== 1) return
-        ws.send(JSON.stringify(payload))
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        ws.send(JSON.stringify(payload));
       }
 
       function handleRemote(payload) {
-        if (!payload || !payload.type) return
-        log('remote: '+payload.type+' @'+payload.position.toFixed(2))
-        if (payload.type === 'play') video.currentTime = payload.position, video.play()
-        if (payload.type === 'pause') video.currentTime = payload.position, video.pause()
-        if (payload.type === 'seek') video.currentTime = payload.position
+        if (!payload || !payload.type) return;
+        
+        if (payload.type === 'video') {
+          const v = videos.find(x => x.id === payload.videoId);
+          if (v) {
+            isRemoteAction = true;
+            videoSelect.value = String(v.id);
+            changeVideoSrc(v);
+            log('📡 Remote: сменили видео на ' + v.filename);
+            
+            setTimeout(() => { isRemoteAction = false; }, 50);
+          }
+          return;
+        }
+
+        const pos = payload.position ?? 0;
+        log(`📡 ${payload.type} @ ${pos.toFixed(2)}s`);
+
+        isRemoteAction = true;
+
+        if (payload.type === 'play') {
+          if (Math.abs(video.currentTime - pos) > 0.5) {
+             video.currentTime = pos;
+          }
+          video.play().catch(e => console.log('Auto-play prevented', e));
+        }
+
+        if (payload.type === 'pause') {
+          video.currentTime = pos;
+          video.pause();
+        }
+
+        if (payload.type === 'seek') {
+          video.currentTime = pos;
+        }
+
+        if (payload.type === 'rate') {
+          video.playbackRate = payload.rate ?? 1;
+        }
+
+        setTimeout(() => {
+          isRemoteAction = false;
+        }, 200);
       }
 
-      function log(s) { const n = document.createElement('div'); n.textContent = s; document.getElementById('log').prepend(n) }
+      function log(s) {
+        const d = new Date();
+        const time = d.toTimeString().split(' ')[0];
+        const n = document.createElement('div');
+        n.textContent = `[${time}] ${s}`;
+        logContainer.prepend(n);
+      }
     </script>
   </body>
 </html>

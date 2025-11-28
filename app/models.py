@@ -6,6 +6,7 @@ from datetime import datetime
 class Video(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     filename: str
+    s3_key: str
     uploaded_at: datetime = Field(default_factory=datetime.utcnow)
 
 

@@ -35,7 +35,7 @@ class InMemoryManager:
 
 class RedisManager:
     def __init__(self, channel_prefix: str = "room"):
-        import redis.asyncio as aioredis  # local import
+        import redis.asyncio as aioredis
 
         self._redis = aioredis.from_url(REDIS_URL or "redis://localhost:6379")
         self.prefix = channel_prefix

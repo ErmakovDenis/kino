@@ -12,7 +12,11 @@ class RoomRead(RoomCreate):
 
 class VideoCreate(BaseModel):
     filename: str
+    s3_key: str
 
 
-class VideoRead(VideoCreate):
+class VideoRead(BaseModel):
     id: int
+    filename: str
+    s3_key: str
+    url: str
