@@ -125,6 +125,11 @@
           <select id="video-select">
             <option value="">— Выберите видео —</option>
           </select>
+          <div style="margin-top:8px; display:flex; gap:8px;">
+            <input id="upload-file" type="file" accept="video/*" />
+            <button id="upload-btn">Загрузить</button>
+            <button id="delete-btn">Удалить</button>
+          </div>
         </div>
 
         <video id="video" controls>
@@ -136,6 +141,7 @@
       </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <script>
       let ws;
       const video = document.getElementById('video');
@@ -144,6 +150,7 @@
       const videoSelect = document.getElementById('video-select');
 
       let videos = [];
+      let hls;
       let isRemoteAction = false;
 
       document.getElementById('join').addEventListener('click', async () => {
@@ -181,6 +188,25 @@
         };
         
         ws.onclose = () => log('🔴 Соединение закрыто');
+
+        // also open a second websocket for global updates (transcode notifications)
+        const updatesWs = new WebSocket(`${proto}//${location.host}/ws/updates`);
+        updatesWs.onmessage = (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            const payload = JSON.parse(data.payload);
+            if (payload.type === 'video_status') {
+              // update videos list and option label
+              const idx = videos.findIndex(x => x.id === payload.id);
+              if (idx !== -1) {
+                videos[idx].status = payload.status;
+                if (payload.hls_master) videos[idx].hls_master = payload.hls_master;
+                fillVideoSelect(videos);
+                log('🔔 Status update: ' + payload.id + ' -> ' + payload.status);
+              }
+            }
+          } catch (err) { console.warn('parse error', err); }
+        };
       });
 
       function fillVideoSelect(list) {
@@ -188,7 +214,7 @@
         list.forEach(v => {
           const opt = document.createElement('option');
           opt.value = String(v.id);
-          opt.textContent = v.filename;
+          opt.textContent = `${v.filename} ${v.status ? ' — ' + v.status : ''}`;
           videoSelect.appendChild(opt);
         });
       }
@@ -201,6 +227,18 @@
         if (!v) return;
 
         changeVideoSrc(v);
+        // if not ready, start polling status until ready
+        if (!v.hls_master || v.status !== 'ready') {
+          pollForReady(v.id).then(newV => {
+            if (newV && newV.hls_master) {
+              playHls(newV.hls_master);
+              log('🎉 HLS ready, playing ' + newV.filename);
+            }
+          });
+        } else {
+          // direct play HLS
+          playHls(v.hls_master);
+        }
         log('Выбрали видео: ' + v.filename);
 
         send({
@@ -209,10 +247,102 @@
         });
       });
 
+      document.getElementById('upload-btn').addEventListener('click', async () => {
+        const f = document.getElementById('upload-file').files?.[0];
+        if (!f) return alert('Выберите файл для загрузки');
+
+        const fd = new FormData();
+        fd.append('file', f, f.name);
+
+        try {
+          const r = await fetch('/api/videos', { method: 'POST', body: fd });
+          if (!r.ok) throw new Error('Upload failed ' + r.status);
+          const v = await r.json();
+          videos.push(v);
+          fillVideoSelect(videos);
+          log('✅ Загружено: ' + v.filename);
+          // auto-select the new video
+          videoSelect.value = String(v.id);
+          changeVideoSrc(v);
+        } catch (err) {
+          log('Ошибка загрузки: ' + err.message);
+        }
+      });
+
+      document.getElementById('delete-btn').addEventListener('click', async () => {
+        const id = Number(videoSelect.value);
+        if (!id) return alert('Выберите видео для удаления');
+        if (!confirm('Удалить выбранное видео?')) return;
+
+        try {
+          const r = await fetch('/api/videos/' + id, { method: 'DELETE' });
+          if (!r.ok) throw new Error('Delete failed ' + r.status);
+          // remove from list
+          videos = videos.filter(x => x.id !== id);
+          fillVideoSelect(videos);
+          log('🗑️ Удалено видео ' + id);
+          // clear video player if that was selected
+          srcEl.src = '';
+          video.load();
+        } catch (err) {
+          log('Ошибка удаления: ' + err.message);
+        }
+      });
+
       function changeVideoSrc(v) {
+        // stop any HLS instance
+        if (hls) {
+          try { hls.destroy(); } catch(e){}
+          hls = null;
+        }
         video.pause();
-        srcEl.src = v.url;
+        // if HLS master exists and status ready, use HLS player
+        if (v.hls_master && v.status === 'ready') {
+          playHls(v.hls_master);
+          return;
+        }
+        srcEl.src = v.url || '';
         video.load();
+      }
+
+
+      function playHls(url) {
+        if (Hls.isSupported()) {
+          hls = new Hls();
+          hls.loadSource(url);
+          hls.attachMedia(video);
+          hls.on(Hls.Events.MANIFEST_PARSED, function() {
+            video.play().catch(() => {});
+          });
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+          // Safari natively supports HLS
+          srcEl.src = url;
+          video.load();
+          video.play().catch(() => {});
+        } else {
+          log('HLS not supported by this browser');
+        }
+      }
+
+      async function pollForReady(id) {
+        // poll /api/videos/{id} until status === 'ready' or timeout
+        const maxRetries = 30; // ~90s
+        for (let i=0;i<maxRetries;i++) {
+          try {
+            const r = await fetch('/api/videos/' + id);
+            if (r.ok) {
+              const v = await r.json();
+              // update local videos list
+              const idx = videos.findIndex(x => x.id === v.id);
+              if (idx !== -1) videos[idx] = v;
+              // update select text
+              fillVideoSelect(videos);
+              if (v.status === 'ready' && v.hls_master) return v;
+            }
+          } catch (e) {}
+          await new Promise(r => setTimeout(r, 3000));
+        }
+        return null;
       }
 
 

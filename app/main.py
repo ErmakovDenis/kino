@@ -21,6 +21,14 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 @app.on_event("startup")
 def on_startup():
     create_db_and_tables()
+    try:
+        from app.s3 import ensure_sample_videos
+
+        SHOULD_PRELOAD = os.environ.get("PRELOAD_SAMPLE_VIDEOS", "1")
+        if SHOULD_PRELOAD in ("1", "true", "yes"):
+            ensure_sample_videos()
+    except Exception:
+        pass
 
 
 @app.get("/", response_class=HTMLResponse)

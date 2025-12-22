@@ -8,6 +8,8 @@ class Video(SQLModel, table=True):
     filename: str
     s3_key: str
     uploaded_at: datetime = Field(default_factory=datetime.utcnow)
+    hls_master: Optional[str] = None
+    status: Optional[str] = "uploaded"
 
 
 class Room(SQLModel, table=True):

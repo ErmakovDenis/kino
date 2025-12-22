@@ -40,6 +40,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg2://kino:kino@db:5432/kino
       REDIS_URL: redis://redis:6379
+      USE_REDIS: "1"
       S3_ENDPOINT_URL: http://minio:9000
       S3_PUBLIC_ENDPOINT: http://localhost:9000
       S3_BUCKET_NAME: kino-videos
@@ -58,6 +59,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg2://kino:kino@db:5432/kino
       REDIS_URL: redis://redis:6379
+      USE_REDIS: "1"
       S3_ENDPOINT_URL: http://minio:9000
       S3_PUBLIC_ENDPOINT: http://localhost:9000
       S3_BUCKET_NAME: kino-videos

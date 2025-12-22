@@ -20,3 +20,5 @@ class VideoRead(BaseModel):
     filename: str
     s3_key: str
     url: str
+    hls_master: Optional[str] = None
+    status: Optional[str] = None
